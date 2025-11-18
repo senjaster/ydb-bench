@@ -84,9 +84,38 @@ class Runner:
         Args:
             worker_count: Number of parallel workers
             tran_count: Number of transactions per worker
-            scale: Number of branches (must match init scale)
+            scale: Number of branches (must not exceed initialized branches)
         """
         asyncio.run(self._execute_parallel(worker_count, tran_count, scale))
+    
+    async def _validate_scale(self, pool: ydb.aio.QuerySessionPool, scale: int):
+        """
+        Validate that the requested scale doesn't exceed the number of branches in the database.
+        
+        Args:
+            pool: YDB query session pool
+            scale: Requested scale value
+            
+        Raises:
+            ValueError: If scale exceeds the number of branches in the database
+        """
+        result = await pool.execute_with_retries(
+            "SELECT COUNT(*) as branch_count FROM `pgbench/branches`;"
+        )
+        
+        # Extract the count from result
+        branch_count = 0
+        for row in result[0].rows:
+            branch_count = row['branch_count']
+            break
+        
+        if scale > branch_count:
+            raise ValueError(
+                f"Scale {scale} exceeds the number of initialized branches ({branch_count}). "
+                f"Please run 'init' with scale >= {scale} or reduce the scale parameter."
+            )
+        
+        logger.info(f"Scale validation passed: {scale} <= {branch_count} branches")
 
     async def _execute_parallel(self, worker_count: int, tran_count: int, scale: int):
         """
@@ -100,6 +129,9 @@ class Runner:
         from worker import Worker
         
         async with self._get_pool() as pool:
+            # Validate scale before starting workers
+            await self._validate_scale(pool, scale)
+            
             async with asyncio.TaskGroup() as tg:
                 for i in range(worker_count):
                     bid_from = math.floor(float(scale)/worker_count*i)+1

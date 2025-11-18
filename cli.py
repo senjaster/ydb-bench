@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 import click
 import os
+import logging
 from multiprocessing import Pool
 from runner import Runner
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 def create_runner_from_config(endpoint, database, cert_file, user, password):
@@ -98,10 +105,11 @@ def init(endpoint, database, cert_file, user, password, scale, processes):
 @click.option('--cert-file', help='Path to root certificate file')
 @click.option('--user', help='Username for authentication')
 @click.option('--password', help='Password for authentication')
+@click.option('--scale', default=100, help='Number of branches (must match init scale, default: 100)')
 @click.option('--workers', default=7, help='Number of async workers per process (default: 7)')
 @click.option('--transactions', default=100, help='Number of transactions per worker (default: 100)')
 @click.option('--processes', default=1, help='Number of parallel processes (default: 1)')
-def run(endpoint, database, cert_file, user, password, workers, transactions, processes):
+def run(endpoint, database, cert_file, user, password, scale, workers, transactions, processes):
     """Run workload against the database."""
     # Get configuration from CLI options or environment variables
     endpoint = get_config_value(endpoint, 'YDB_ENDPOINT', required=True)
@@ -110,14 +118,14 @@ def run(endpoint, database, cert_file, user, password, workers, transactions, pr
     user = get_config_value(user, 'YDB_USER')
     password = get_config_value(password, 'YDB_PASSWORD')
     
-    click.echo(f"Running workload with workers={workers}, transactions={transactions}, processes={processes}")
+    click.echo(f"Running workload with scale={scale}, workers={workers}, transactions={transactions}, processes={processes}")
     
     def run_worker(process_id):
         """Worker function for multiprocessing."""
         if processes > 1:
             click.echo(f"Process {process_id} started")
         runner = create_runner_from_config(endpoint, database, cert_file, user, password)
-        runner.run(workers, transactions)
+        runner.run(workers, transactions, scale)
     
     if processes == 1:
         # Single process execution

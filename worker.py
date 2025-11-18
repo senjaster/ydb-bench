@@ -1,5 +1,9 @@
 import ydb
+import logging
 from random import randint
+from constants import TELLERS_PER_BRANCH, ACCOUNTS_PER_BRANCH
+
+logger = logging.getLogger(__name__)
 
 
 class Worker:
@@ -24,11 +28,11 @@ class Worker:
         Args:
             pool: YDB query session pool
         """
-        print(f"Worker [{self._bid_from}, {self._bid_to}] started")
+        logger.info(f"Worker [{self._bid_from}, {self._bid_to}] started")
         for i in range(self._count):
             self._bid = randint(self._bid_from, self._bid_to)
             await pool.retry_operation_async(self._execute_workload)
-        print(f"Worker [{self._bid_from}, {self._bid_to}] completed")
+        logger.info(f"Worker [{self._bid_from}, {self._bid_to}] completed")
 
     async def execute_single_session(self, pool: ydb.aio.QuerySessionPool):
         """
@@ -37,7 +41,7 @@ class Worker:
         Args:
             pool: YDB query session pool
         """
-        print(f"Worker [{self._bid_from}, {self._bid_to}] started")
+        logger.info(f"Worker [{self._bid_from}, {self._bid_to}] started")
         session = await pool.acquire()
         try:
             for i in range(self._count):
@@ -45,7 +49,7 @@ class Worker:
                 await self._execute_workload(session)
         finally:
             await pool.release(session)
-        print(f"Worker [{self._bid_from}, {self._bid_to}] completed")
+        logger.info(f"Worker [{self._bid_from}, {self._bid_to}] completed")
 
     async def _execute_workload(self, session: ydb.aio.QuerySession):
         """
@@ -55,8 +59,8 @@ class Worker:
             session: YDB query session
         """
         bid = self._bid
-        tid = (bid - 1) * 10 + randint(1, 10)  
-        aid = (bid - 1) * 100000 + randint(1, 100000)
+        tid = (bid - 1) * TELLERS_PER_BRANCH + randint(1, TELLERS_PER_BRANCH)
+        aid = (bid - 1) * ACCOUNTS_PER_BRANCH + randint(1, ACCOUNTS_PER_BRANCH)
         delta = randint(1, 1000)
 
         try:
@@ -79,5 +83,5 @@ class Worker:
                     commit_tx=True
                 )
         except Exception as e:
-            print(e)
+            logger.error(f"Transaction failed for bid={self._bid}: {e}", exc_info=True)
             raise

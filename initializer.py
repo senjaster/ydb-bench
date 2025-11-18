@@ -1,4 +1,5 @@
 import ydb
+from constants import TELLERS_PER_BRANCH, ACCOUNTS_PER_BRANCH
 
 
 class Initializer:
@@ -65,7 +66,13 @@ class Initializer:
         Args:
             pool: YDB query session pool
             bid: Branch ID to fill
+            
+        Raises:
+            ValueError: If bid is out of valid range [1, scale]
         """
+        if bid < 1 or bid > self._scale:
+            raise ValueError(f"Branch ID {bid} is out of valid range [1, {self._scale}]")
+        
         await pool.execute_with_retries(
             """
             $d = SELECT d FROM (SELECT AsList(0,1,2,3,4,5,6,7,8,9) as d) FLATTEN LIST BY (d);
@@ -75,13 +82,13 @@ class Initializer:
 
             REPLACE INTO `pgbench/tellers`(tid, bid, tbalance, filler)
             SELECT
-                ($bid-1)*10+d1.d+1 as tid, $bid, 0 , null
+                ($bid-1)*$tellers_per_branch+d1.d+1 as tid, $bid, 0 , null
             FROM
                 $d as d1;
 
             REPLACE INTO `pgbench/accounts`(aid, bid, abalance, filler)
             SELECT
-                ($bid-1)*100000 + rn + 1 as aid,
+                ($bid-1)*$accounts_per_branch + rn + 1 as aid,
                 $bid as bid,
                 0 as abalance,
                 null as filler
@@ -98,6 +105,8 @@ class Initializer:
                 ) t
             """,
             parameters={
-                    "$bid": ydb.TypedValue(bid, ydb.PrimitiveType.Int32)
+                    "$bid": ydb.TypedValue(bid, ydb.PrimitiveType.Int32),
+                    "$tellers_per_branch": ydb.TypedValue(TELLERS_PER_BRANCH, ydb.PrimitiveType.Int32),
+                    "$accounts_per_branch": ydb.TypedValue(ACCOUNTS_PER_BRANCH, ydb.PrimitiveType.Int32)
             }
         )

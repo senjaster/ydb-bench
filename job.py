@@ -104,7 +104,8 @@ class Job(BaseExecutor):
             success = True
         except Exception as e:
             error_message = str(e)
-            logger.error(f"Transaction failed: {e}", exc_info=True)
+            # Log only the error message without stack trace since database errors are expected
+            logger.error(f"Transaction failed: {e}")
             raise
         finally:
             end_time = time.time()

@@ -1,0 +1,9 @@
+.venv
+.vscode
+
+__pycache__
+
+ca.crt
+
+run.sh
+init.sh

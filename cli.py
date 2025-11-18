@@ -5,10 +5,11 @@ import logging
 from multiprocessing import Pool
 from runner import Runner
 
-# Configure logging
+# Configure logging to stderr
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=__import__('sys').stderr
 )
 
 

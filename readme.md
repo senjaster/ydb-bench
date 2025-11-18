@@ -42,10 +42,10 @@ Create tables and populate with test data:
 
 ```bash
 # Using environment variables
-python executor.py init --scale 100
+python ydb-pgbench.py init --scale 100
 
 # Using CLI options (overrides environment variables)
-python executor.py init \
+python ydb-pgbench.py init \
   --endpoint "grpcs://ydb-host:2135" \
   --database "/Root/database" \
   --cert-file "./ca.crt" \
@@ -54,7 +54,7 @@ python executor.py init \
   --scale 100
 
 # With multiple processes
-python executor.py init --scale 100 --processes 4
+python ydb-pgbench.py init --scale 100 --processes 4
 ```
 
 **Options:**
@@ -67,10 +67,10 @@ Execute pgbench-like transactions:
 
 ```bash
 # Using environment variables
-python executor.py run --workers 100 --transactions 1000
+python ydb-pgbench.py run --workers 100 --transactions 1000
 
 # Using CLI options
-python executor.py run \
+python ydb-pgbench.py run \
   --endpoint "grpcs://ydb-host:2135" \
   --database "/Root/database" \
   --cert-file "./ca.crt" \
@@ -80,7 +80,7 @@ python executor.py run \
   --transactions 1000
 
 # With multiple processes
-python executor.py run --workers 25 --transactions 1000 --processes 4
+python ydb-pgbench.py run --workers 25 --transactions 1000 --processes 4
 ```
 
 **Options:**
@@ -92,7 +92,7 @@ python executor.py run --workers 25 --transactions 1000 --processes 4
 
 The application is organized into separate modules:
 
-- **`executor.py`** - Main entry point
+- **`ydb-pgbench.py`** - Main entry point
 - **`cli.py`** - Click CLI implementation with commands and configuration management
 - **`runner.py`** - YDB connection management and workload orchestration
 - **`initializer.py`** - Database table creation and data population
@@ -108,10 +108,10 @@ When `--processes` is greater than 1, the tool uses Python's multiprocessing to 
 
 ```bash
 # Initialize with 50 branches
-python executor.py init --scale 50
+python ydb-pgbench.py init --scale 50
 
 # Run workload with 10 workers, 500 transactions each
-python executor.py run --workers 10 --transactions 500
+python ydb-pgbench.py run --workers 10 --transactions 500
 
 # Run workload with 4 processes, 25 workers per process
-python executor.py run --workers 25 --transactions 1000 --processes 4
+python ydb-pgbench.py run --workers 25 --transactions 1000 --processes 4

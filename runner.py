@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 import math
+from metrics import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,13 @@ class Runner:
             scale: Number of branches (must not exceed initialized branches)
             use_single_session: If True, use single session mode; if False, use pooled mode (default)
         """
-        asyncio.run(self._execute_parallel(worker_count, tran_count, scale, use_single_session))
+        metrics = MetricsCollector()
+        asyncio.run(self._execute_parallel(worker_count, tran_count, scale, use_single_session, metrics))
+        
+        # Print metrics summary after workload completes
+        metrics.print_summary()
+        
+        return metrics
     
     async def _validate_scale(self, pool: ydb.aio.QuerySessionPool, scale: int):
         """
@@ -118,7 +125,7 @@ class Runner:
         
         logger.info(f"Scale validation passed: {scale} <= {branch_count} branches")
 
-    async def _execute_parallel(self, worker_count: int, tran_count: int, scale: int, use_single_session: bool):
+    async def _execute_parallel(self, worker_count: int, tran_count: int, scale: int, use_single_session: bool, metrics: MetricsCollector):
         """
         Execute workload in parallel with multiple workers.
         
@@ -127,6 +134,7 @@ class Runner:
             tran_count: Number of transactions per worker
             scale: Number of branches to distribute across workers
             use_single_session: If True, use single session mode; if False, use pooled mode
+            metrics: MetricsCollector instance for tracking performance
         """
         from worker import Worker
         
@@ -141,7 +149,7 @@ class Runner:
                 for i in range(worker_count):
                     bid_from = math.floor(float(scale)/worker_count*i)+1
                     bid_to = math.floor(float(scale)/worker_count*(i+1))
-                    worker = Worker(bid_from, bid_to, tran_count)
+                    worker = Worker(bid_from, bid_to, tran_count, metrics)
                     
                     if use_single_session:
                         tg.create_task(worker.execute_single_session(pool))

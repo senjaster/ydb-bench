@@ -3,7 +3,6 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from typing import List
-from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +35,8 @@ class TransactionMetrics:
 
 @dataclass
 class MetricsCollector:
-    """Thread-safe collector for transaction metrics."""
+    """Collector for transaction metrics. Safe for use with asyncio (single-threaded)."""
     transactions: List[TransactionMetrics] = field(default_factory=list)
-    _lock: Lock = field(default_factory=Lock)
     _start_time: float = field(default_factory=time.time)
     
     def record_transaction(self, start_time: float, end_time: float, success: bool,
@@ -55,17 +53,28 @@ class MetricsCollector:
             server_duration_us: Server-side total duration in microseconds
             server_cpu_time_us: Server-side CPU time in microseconds
         """
-        with self._lock:
-            self.transactions.append(
-                TransactionMetrics(
-                    start_time=start_time,
-                    end_time=end_time,
-                    success=success,
-                    error_message=error_message,
-                    server_duration_us=server_duration_us,
-                    server_cpu_time_us=server_cpu_time_us
-                )
+        self.transactions.append(
+            TransactionMetrics(
+                start_time=start_time,
+                end_time=end_time,
+                success=success,
+                error_message=error_message,
+                server_duration_us=server_duration_us,
+                server_cpu_time_us=server_cpu_time_us
             )
+        )
+    
+    def merge(self, other: 'MetricsCollector'):
+        """
+        Merge transactions from another MetricsCollector into this one.
+        
+        Args:
+            other: Another MetricsCollector instance to merge from
+        """
+        self.transactions.extend(other.transactions)
+        # Update start time to the earliest one
+        if other._start_time < self._start_time:
+            self._start_time = other._start_time
     
     def _calculate_percentiles(self, values: List[float]) -> dict:
         """Calculate percentiles for a list of values."""
@@ -100,48 +109,47 @@ class MetricsCollector:
         Returns:
             Dictionary containing metrics summary
         """
-        with self._lock:
-            if not self.transactions:
-                return {
-                    "total_duration": 0.0,
-                    "total_transactions": 0,
-                    "successful_transactions": 0,
-                    "failed_transactions": 0,
-                    "tps": 0.0,
-                    "latency": {},
-                    "server_duration": {},
-                    "server_cpu_time": {},
-                }
-            
-            total_duration = time.time() - self._start_time
-            total_transactions = len(self.transactions)
-            successful_transactions = sum(1 for t in self.transactions if t.success)
-            failed_transactions = total_transactions - successful_transactions
-            
-            # Calculate client-side latency statistics (in milliseconds)
-            latencies_ms = [t.latency * 1000 for t in self.transactions]
-            latency_stats = self._calculate_percentiles(latencies_ms)
-            
-            # Calculate server-side metrics (only for successful transactions with stats)
-            server_durations = [t.server_duration_ms for t in self.transactions if t.success and t.server_duration_us > 0]
-            server_cpu_times = [t.server_cpu_time_ms for t in self.transactions if t.success and t.server_cpu_time_us > 0]
-            
-            server_duration_stats = self._calculate_percentiles(server_durations)
-            server_cpu_time_stats = self._calculate_percentiles(server_cpu_times)
-            
-            # Calculate transactions per second
-            tps = total_transactions / total_duration if total_duration > 0 else 0.0
-            
+        if not self.transactions:
             return {
-                "total_duration": total_duration,
-                "total_transactions": total_transactions,
-                "successful_transactions": successful_transactions,
-                "failed_transactions": failed_transactions,
-                "tps": tps,
-                "latency": latency_stats,
-                "server_duration": server_duration_stats,
-                "server_cpu_time": server_cpu_time_stats,
+                "total_duration": 0.0,
+                "total_transactions": 0,
+                "successful_transactions": 0,
+                "failed_transactions": 0,
+                "tps": 0.0,
+                "latency": {},
+                "server_duration": {},
+                "server_cpu_time": {},
             }
+        
+        total_duration = time.time() - self._start_time
+        total_transactions = len(self.transactions)
+        successful_transactions = sum(1 for t in self.transactions if t.success)
+        failed_transactions = total_transactions - successful_transactions
+        
+        # Calculate client-side latency statistics (in milliseconds)
+        latencies_ms = [t.latency * 1000 for t in self.transactions]
+        latency_stats = self._calculate_percentiles(latencies_ms)
+        
+        # Calculate server-side metrics (only for successful transactions with stats)
+        server_durations = [t.server_duration_ms for t in self.transactions if t.success and t.server_duration_us > 0]
+        server_cpu_times = [t.server_cpu_time_ms for t in self.transactions if t.success and t.server_cpu_time_us > 0]
+        
+        server_duration_stats = self._calculate_percentiles(server_durations)
+        server_cpu_time_stats = self._calculate_percentiles(server_cpu_times)
+        
+        # Calculate transactions per second
+        tps = total_transactions / total_duration if total_duration > 0 else 0.0
+        
+        return {
+            "total_duration": total_duration,
+            "total_transactions": total_transactions,
+            "successful_transactions": successful_transactions,
+            "failed_transactions": failed_transactions,
+            "tps": tps,
+            "latency": latency_stats,
+            "server_duration": server_duration_stats,
+            "server_cpu_time": server_cpu_time_stats,
+        }
     
     def print_summary(self):
         """Print formatted metrics summary to stdout (not as log)."""

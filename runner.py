@@ -154,9 +154,7 @@ class Runner:
         
         asyncio.run(_run())
         
-        # Print metrics summary after workload completes
-        metrics.print_summary()
-        
+        # Return metrics without printing (caller will handle printing)
         return metrics
     
     async def _validate_scale(self, pool: ydb.aio.QuerySessionPool, scale: int):

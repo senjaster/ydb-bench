@@ -117,9 +117,8 @@ class Job(BaseExecutor):
                     total_cpu_time_us = tx.last_query_stats.total_cpu_time_us
             success = True
         except Exception as e:
-            error_message = str(e)
-            # Log only the error message without stack trace since database errors are expected
-            logger.error(f"Transaction failed: {e}")
+            error_message = e.message
+            
             raise
         finally:
             end_time = time.time()

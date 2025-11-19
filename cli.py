@@ -8,7 +8,7 @@ from runner import Runner
 # Configure logging to stderr
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - PID:%(process)d - %(name)s - %(levelname)s - %(message)s',
     stream=__import__('sys').stderr
 )
 
@@ -46,6 +46,9 @@ def _run_job_worker(args):
     Args:
         args: Tuple of (process_id, endpoint, database, ca_file, user, password,
               table_folder, jobs, transactions, scale, single_session, script)
+    
+    Returns:
+        MetricsCollector instance with collected metrics, or None on error
     """
     import os
     import sys
@@ -58,7 +61,8 @@ def _run_job_worker(args):
     
     try:
         runner = create_runner_from_config(endpoint, database, ca_file, user, password, table_folder)
-        runner.run(jobs, transactions, scale, single_session, script)
+        metrics = runner.run(jobs, transactions, scale, single_session, script)
+        return metrics
     except Exception as e:
         # Catch all exceptions to prevent unpicklable objects from being sent back
         # Print error to stderr and exit gracefully
@@ -156,16 +160,31 @@ def run(ctx, client, jobs, transactions, single_session, file):
     if client == 1:
         # Single process execution
         runner = create_runner_from_config(endpoint, database, ca_file, user, password, prefix_path)
-        runner.run(jobs, transactions, scale, single_session, script)
+        metrics = runner.run(jobs, transactions, scale, single_session, script)
+        # Print metrics for single process
+        metrics.print_summary()
     else:
         # Multi-process execution
+        from metrics import MetricsCollector
+        
         # Prepare arguments for each worker process
         worker_args = [
             (i, endpoint, database, ca_file, user, password, prefix_path, jobs, transactions, scale, single_session, script)
             for i in range(client)
         ]
+        
         with Pool(client) as pool:
-            pool.map(_run_job_worker, worker_args)
+            # Collect metrics from all worker processes
+            results = pool.map(_run_job_worker, worker_args)
+        
+        # Merge all metrics into a single collector
+        merged_metrics = MetricsCollector()
+        for result in results:
+            if result is not None:  # Skip failed processes
+                merged_metrics.merge(result)
+        
+        # Print merged metrics once
+        merged_metrics.print_summary()
     
     click.echo("Workload completed")
 

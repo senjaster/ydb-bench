@@ -90,7 +90,7 @@ ydb-bench run \
   --transactions 1000
 
 # With multiple client processes
-ydb-bench run --client 4 --jobs 25 --transactions 1000
+ydb-bench run --processes 4 --jobs 25 --transactions 1000
 
 # Using single session mode
 ydb-bench run --jobs 10 --transactions 100 --single-session
@@ -100,7 +100,7 @@ ydb-bench run --jobs 10 --transactions 100 --file custom_script.sql
 ```
 
 **Options:**
-- `--client` / `-c` - Number of parallel client processes (default: 1)
+- `--processes` - Number of parallel client processes (default: 1)
 - `--jobs` / `-j` - Number of parallel jobs per process (default: 1). Each job uses separate connection.
 - `--transactions` / `-t` - Number of transactions each job runs (default: 100)
 - `--single-session` - Use single persistent session per job instead of requesting session from pool each time
@@ -135,11 +135,19 @@ Uses a single acquired session for all operations. Useful for testing session be
 ydb-bench run --single-session --jobs 10 --transactions 100
 ```
 
-## Multiprocessing
+## Multiprocessing 
 
-When `--client` is set to 1 (default), the tool runs in single-process mode using async/await for concurrency.
+When `--processes` is set to 1 (default), the tool runs in single-process mode using async/await for concurrency.
 
-When `--client` is greater than 1, the tool uses Python's multiprocessing to run multiple processes in parallel, each with its own set of async jobs.
+When `--processes` is greater than 1, the tool uses Python's multiprocessing to run multiple processes in parallel, each with its own set of async jobs. 
+
+## Connection count
+
+Each job uses it's own connection.
+Each process has it's own set of jobs
+Therefore Number of parallel connections is equal to (jobs * processes).
+Generally it is recommended to raise jobs until python process CPU consumption reaches 90%. Practical job count limit is somewhere between 10 and 100 depending on cluster performance (better performance - less jobs). To rise connection count further one should increase process count.
+
 
 ## Examples
 

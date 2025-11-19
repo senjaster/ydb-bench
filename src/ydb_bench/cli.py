@@ -189,8 +189,7 @@ def init(ctx: click.Context) -> None:
 
 @cli.command()
 @click.option(
-    "--client",
-    "-c",
+    "--processes",
     type=int,
     default=1,
     help="Number of parallel client processes (default: 1)",
@@ -223,7 +222,7 @@ def init(ctx: click.Context) -> None:
 @click.pass_context
 def run(
     ctx: click.Context,
-    client: int,
+    processes: int,
     jobs: int,
     transactions: int,
     single_session: bool,
@@ -251,7 +250,7 @@ def run(
         f"Running workload with prefix_path={prefix_path}, scale={scale}, jobs={jobs}, transactions={transactions}, client={client}, mode={mode}"
     )
 
-    if client == 1:
+    if processes == 1:
         # Single process execution
         runner = create_runner_from_config(endpoint, database, ca_file, user, password, prefix_path)
         metrics = runner.run(jobs, transactions, scale, single_session, script)
@@ -277,10 +276,10 @@ def run(
                 single_session,
                 script,
             )
-            for i in range(client)
+            for i in range(processes)
         ]
 
-        with Pool(client) as pool:
+        with Pool(processes) as pool:
             # Collect metrics from all worker processes
             results = pool.map(_run_job_worker, worker_args)
 

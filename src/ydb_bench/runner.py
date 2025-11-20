@@ -8,6 +8,7 @@ import ydb
 
 from .base_executor import BaseExecutor
 from .metrics import MetricsCollector
+from .workload import WeightedScriptSelector
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ class Runner:
         tran_count: int = 100,
         scale: int = 100,
         use_single_session: bool = False,
-        script: Optional[str] = None,
+        script_selector: Optional[WeightedScriptSelector] = None,
     ) -> MetricsCollector:
         """
         Run workload with specified number of jobs and transactions.
@@ -116,7 +117,7 @@ class Runner:
             tran_count: Number of transactions per job
             scale: Number of branches (must not exceed initialized branches)
             use_single_session: If True, use single session mode; if False, use pooled mode (default)
-            script: Optional SQL script to execute (if None, uses default script)
+            script_selector: Optional WeightedScriptSelector for multiple weighted scripts (if None, uses default script)
         """
         from .job import Job
 
@@ -134,7 +135,7 @@ class Runner:
                     metrics,
                     self._table_folder,
                     use_single_session,
-                    script,
+                    script_selector,
                 )
             )
 

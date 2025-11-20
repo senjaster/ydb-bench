@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import logging
+import os
 import re
 from multiprocessing import Pool
 from typing import Any, Optional, Tuple
@@ -7,6 +8,7 @@ from typing import Any, Optional, Tuple
 import click
 
 from .runner import Runner
+from .workload import WeightedScriptSelector, WorkloadScript
 
 # Configure logging to stderr
 logging.basicConfig(
@@ -48,8 +50,72 @@ def create_runner_from_config(
     )
 
 
+def parse_weighted_file_spec(_ctx: Any, _param: Any, value: str) -> Tuple[str, float]:
+    """
+    Parse a file specification in format 'filename.sql@weight' or 'filename.sql'.
+    
+    This is a Click callback that validates and parses the file specification.
+
+    Args:
+        _ctx: Click context (unused)
+        _param: Click parameter (unused)
+        value: File specification string
+
+    Returns:
+        Tuple of (filepath, weight)
+
+    Raises:
+        click.BadParameter: If weight syntax is invalid
+    """
+    if "@" in value:
+        filepath, weight_str = value.rsplit("@", 1)
+        try:
+            weight = float(weight_str)
+            if weight <= 0:
+                raise click.BadParameter(f"Weight must be positive in: {value}")
+        except ValueError:
+            raise click.BadParameter(f"Invalid weight syntax in: {value}. Expected format: file.sql@weight")
+    else:
+        filepath = value
+        weight = 1.0
+
+    return (filepath, weight)
+
+
+def create_workload_script(filepath: str, weight: float, table_folder: str) -> WorkloadScript:
+    """
+    Create a WorkloadScript from a file path and weight.
+
+    Args:
+        filepath: Path to SQL file
+        weight: Weight for random selection
+        table_folder: Table folder name for script formatting
+
+    Returns:
+        WorkloadScript instance
+
+    Raises:
+        click.ClickException: If file doesn't exist or can't be read
+    """
+    # Validate file exists
+    if not os.path.exists(filepath):
+        raise click.ClickException(f"File not found: {filepath}")
+
+    # Read file content
+    try:
+        with open(filepath, "r") as f:
+            content = f.read()
+    except Exception as e:
+        raise click.ClickException(f"Error reading file {filepath}: {str(e)}")
+
+    # Create WorkloadScript
+    return WorkloadScript(filepath, content, weight, table_folder)
+
+
 def _run_job_worker(
-    args: Tuple[int, str, str, Optional[str], Optional[str], Optional[str], str, int, int, int, bool, Optional[str]],
+    args: Tuple[
+        int, str, str, Optional[str], Optional[str], Optional[str], str, int, int, int, bool, Optional[WeightedScriptSelector]
+    ],
 ) -> Optional[Any]:
     """
     Worker function for multiprocessing that runs a single job.
@@ -57,7 +123,7 @@ def _run_job_worker(
 
     Args:
         args: Tuple of (process_id, endpoint, database, ca_file, user, password,
-              table_folder, jobs, transactions, scale, single_session, script)
+              table_folder, jobs, transactions, scale, single_session, script_selector)
 
     Returns:
         MetricsCollector instance with collected metrics, or None on error
@@ -78,7 +144,7 @@ def _run_job_worker(
         transactions,
         scale,
         single_session,
-        script,
+        script_selector,
     ) = args
 
     pid = os.getpid()
@@ -86,7 +152,7 @@ def _run_job_worker(
 
     try:
         runner = create_runner_from_config(endpoint, database, ca_file, user, password, table_folder)
-        metrics = runner.run(jobs, transactions, scale, single_session, script)
+        metrics = runner.run(jobs, transactions, scale, single_session, script_selector)
         return metrics
     except Exception as e:
         # Catch all exceptions to prevent unpicklable objects from being sent back
@@ -216,8 +282,10 @@ def init(ctx: click.Context) -> None:
 @click.option(
     "--file",
     "-f",
-    type=click.Path(exists=True, readable=True),
-    help="Path to file containing SQL script to execute",
+    multiple=True,
+    type=str,
+    callback=parse_weighted_file_spec,
+    help="Path to SQL file with optional weight: file.sql@weight (default weight: 1). Can be specified multiple times.",
 )
 @click.pass_context
 def run(
@@ -226,7 +294,7 @@ def run(
     jobs: int,
     transactions: int,
     single_session: bool,
-    file: Optional[str],
+    file: Tuple[Tuple[str, float], ...],
 ) -> None:
     """Run workload against the database."""
     # Get common configuration from context
@@ -238,12 +306,19 @@ def run(
     prefix_path = ctx.obj["prefix_path"]
     scale = ctx.obj["scale"]
 
-    # Read script from file if provided
-    script = None
+    # Create script selector from parsed file specifications
+    script_selector = None
     if file:
-        with open(file, "r") as f:
-            script = f.read()
-        click.echo(f"Using script from file: {file}")
+        scripts = []
+        for filepath, weight in file:
+            script = create_workload_script(filepath, weight, prefix_path)
+            scripts.append(script)
+            click.echo(f"Loaded script: {script.filepath} (weight: {script.weight})")
+
+        # Create selector
+        script_selector = WeightedScriptSelector(scripts)
+        total_weight = script_selector.total_weight
+        click.echo(f"Total weight: {total_weight}")
 
     mode = "single session" if single_session else "pooled"
     click.echo(
@@ -253,7 +328,7 @@ def run(
     if processes == 1:
         # Single process execution
         runner = create_runner_from_config(endpoint, database, ca_file, user, password, prefix_path)
-        metrics = runner.run(jobs, transactions, scale, single_session, script)
+        metrics = runner.run(jobs, transactions, scale, single_session, script_selector)
         # Print metrics for single process
         metrics.print_summary()
     else:
@@ -274,7 +349,7 @@ def run(
                 transactions,
                 scale,
                 single_session,
-                script,
+                script_selector,
             )
             for i in range(processes)
         ]

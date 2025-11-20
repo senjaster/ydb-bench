@@ -9,6 +9,7 @@ import ydb
 from .base_executor import BaseExecutor
 from .constants import ACCOUNTS_PER_BRANCH, DEFAULT_SCRIPT, TELLERS_PER_BRANCH
 from .metrics import MetricsCollector
+from .workload import WeightedScriptSelector, WorkloadScript
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class Job(BaseExecutor):
         metrics_collector: Optional[MetricsCollector] = None,
         table_folder: str = "pgbench",
         use_single_session: bool = False,
-        script: Optional[str] = None,
+        script_selector: Optional[WeightedScriptSelector] = None,
     ):
         """
         Initialize a job that executes transactions.
@@ -40,7 +41,7 @@ class Job(BaseExecutor):
             metrics_collector: Optional metrics collector for tracking performance
             table_folder: Folder name for tables (default: "pgbench")
             use_single_session: If True, use single session mode; if False, use pooled mode
-            script: SQL script to execute (default: DEFAULT_SCRIPT from constants)
+            script_selector: Optional WeightedScriptSelector for multiple weighted scripts (if None, uses default script)
         """
         super().__init__(
             bid_from,
@@ -51,25 +52,26 @@ class Job(BaseExecutor):
             use_single_session,
         )
 
-        # Use default script if none provided
-        script_template = script if script is not None else DEFAULT_SCRIPT
+        # Create script selector if none provided
+        if script_selector is None:
+            # Create default selector with DEFAULT_SCRIPT
+            default_script = WorkloadScript(
+                filepath="<default>",
+                content=DEFAULT_SCRIPT,
+                weight=1.0,
+                table_folder=table_folder,
+            )
+            self._script_selector = WeightedScriptSelector([default_script])
+        else:
+            self._script_selector = script_selector
 
-        # Format script with table_folder in constructor
-        self._script = script_template.format(table_folder=self._table_folder)
-
-        # Detect which parameters are used in the script
-        self._uses_bid = "$bid" in self._script
-        self._uses_tid = "$tid" in self._script
-        self._uses_aid = "$aid" in self._script
-        self._uses_delta = "$delta" in self._script
-        self._uses_iteration = "$iteration" in self._script
-
-    def _build_parameters(self, iteration: int) -> Dict[str, Any]:
+    def _build_parameters(self, script: WorkloadScript, iteration: int) -> Dict[str, Any]:
         """
-        Build parameters dictionary based on what's used in the script.
+        Build parameters dictionary based on what the selected script uses.
         Generates random values for bid, tid, aid, and delta.
 
         Args:
+            script: WorkloadScript with parameter usage flags
             iteration: Current iteration number
 
         Returns:
@@ -82,21 +84,21 @@ class Job(BaseExecutor):
         delta = randint(1, 1000)
 
         parameters = {}
-        if self._uses_bid:
+        if script.uses_bid:
             parameters["$bid"] = ydb.TypedValue(bid, ydb.PrimitiveType.Int32)
-        if self._uses_tid:
+        if script.uses_tid:
             parameters["$tid"] = ydb.TypedValue(tid, ydb.PrimitiveType.Int32)
-        if self._uses_aid:
+        if script.uses_aid:
             parameters["$aid"] = ydb.TypedValue(aid, ydb.PrimitiveType.Int32)
-        if self._uses_delta:
+        if script.uses_delta:
             parameters["$delta"] = ydb.TypedValue(delta, ydb.PrimitiveType.Int32)
-        if self._uses_iteration:
+        if script.uses_iteration:
             parameters["$iteration"] = ydb.TypedValue(iteration, ydb.PrimitiveType.Int32)
         return parameters
 
     async def _execute_operation(self, session: ydb.aio.QuerySession, iteration: int) -> None:
         """
-        Execute a single pgbench-like transaction.
+        Execute a single pgbench-like transaction with randomly selected script.
 
         Args:
             session: YDB query session
@@ -109,12 +111,15 @@ class Job(BaseExecutor):
         total_cpu_time_us = 0
 
         try:
-            # Build parameters dictionary with random values
-            parameters = self._build_parameters(iteration)
+            # Select script for this transaction
+            script_content, script = self._script_selector.get_script_with_params()
+
+            # Build parameters dictionary based on what this specific script uses
+            parameters = self._build_parameters(script, iteration)
 
             async with session.transaction() as tx:
                 async with await tx.execute(
-                    self._script,
+                    script_content,
                     parameters=parameters,
                     commit_tx=True,
                     stats_mode=ydb.QueryStatsMode.BASIC,

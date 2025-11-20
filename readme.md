@@ -49,14 +49,9 @@ export YDB_PASSWORD="your_password"
 
 ## Использование
 
-### Инициализация базы данных
+### Глобальные опции командной строки
 
-Создание таблиц и заполнение тестовыми данными:
-
-```bash
-# Использование переменных окружения
-ydb-bench init --scale 100
-
+```
 # Использование параметров командной строки (переопределяет переменные окружения)
 ydb-bench init \
   --endpoint "grpcs://ydb-host:2135" \
@@ -64,7 +59,26 @@ ydb-bench init \
   --ca-file "./ca.crt" \
   --user "root" \
   --password "your_password" \
-  --scale 100
+  --scale 100 \
+  --prefix-path pgbench
+```
+
+- `endpoint` - Эндпоинт YDB (например, `grpcs://ydb-host:2135`)
+- `database` - Путь к базе данных (например, `/Root/database`)
+- `ca-file` - Путь к файлу корневого сертификата (опционально)
+- `user` - Имя пользователя для аутентификации (опционально)
+- `password` - Пароль для аутентификации (опционально)
+- `prefix-path` - Имя папки для таблиц (по умолчанию: pgbench)
+- `scale` - Коэффициент масштабирования объёма данных
+
+### Инициализация базы данных
+
+Создание таблиц и заполнение тестовыми данными:
+
+```bash
+# Использование переменных окружения
+ydb-bench --scale 100 init
+
 ```
 
 **Параметры:**
@@ -80,12 +94,13 @@ ydb-bench init \
 ydb-bench run --jobs 100 --transactions 1000
 
 # Использование параметров командной строки
-ydb-bench run \
+ydb-bench \
   --endpoint "grpcs://ydb-host:2135" \
   --database "/Root/database" \
   --ca-file "./ca.crt" \
   --user "root" \
   --password "your_password" \
+  run \
   --jobs 100 \
   --transactions 1000
 

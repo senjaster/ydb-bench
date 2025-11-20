@@ -47,6 +47,10 @@ class Initializer(BaseExecutor):
                 abalance Int32,
                 filler Utf8,
                 PRIMARY KEY(aid)
+            ) WITH (
+                AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
             );
 
             DROP TABLE IF EXISTS `{self._table_folder}/branches`;
@@ -56,6 +60,10 @@ class Initializer(BaseExecutor):
                 bbalance Int32,
                 filler Utf8,
                 PRIMARY KEY(bid)
+            ) WITH (
+                AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
             );
 
             DROP TABLE IF EXISTS `{self._table_folder}/tellers`;
@@ -66,6 +74,10 @@ class Initializer(BaseExecutor):
                 tbalance Int32,
                 filler Utf8,
                 PRIMARY KEY(tid)
+            ) WITH (
+                AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
             );
 
             DROP TABLE IF EXISTS `{self._table_folder}/history`;
@@ -78,6 +90,10 @@ class Initializer(BaseExecutor):
                 mtime timestamp,
                 filler Utf8,
                 PRIMARY KEY(aid, mtime)
+            ) WITH (
+                AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
             );
             """
         )

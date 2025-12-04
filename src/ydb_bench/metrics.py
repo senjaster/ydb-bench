@@ -2,7 +2,7 @@ import logging
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class MetricsCollector:
     """Collector for transaction metrics. Safe for use with asyncio (single-threaded)."""
 
     transactions: List[TransactionMetrics] = field(default_factory=list)
-    _start_time: float = field(default_factory=time.time)
+    _start_time: Optional[float] = None
     unhandled_error_messages: List[str] = field(default_factory=list)
 
     def record_transaction(
@@ -62,6 +62,8 @@ class MetricsCollector:
             server_duration_us: Server-side total duration in microseconds
             server_cpu_time_us: Server-side CPU time in microseconds
         """
+        if self._start_time is None:
+            self._start_time = time.time()
         self.transactions.append(
             TransactionMetrics(
                 start_time=start_time,
@@ -83,7 +85,7 @@ class MetricsCollector:
         self.transactions.extend(other.transactions)
         self.unhandled_error_messages.extend(other.unhandled_error_messages)
         # Update start time to the earliest one
-        if other._start_time < self._start_time:
+        if self._start_time is None or (other._start_time is not None and other._start_time < self._start_time):
             self._start_time = other._start_time
 
     def _calculate_percentiles(self, values: List[float]) -> Dict[str, float]:
@@ -138,8 +140,10 @@ class MetricsCollector:
                 "server_duration": {},
                 "server_cpu_time": {},
             }
-
-        total_duration = time.time() - self._start_time
+        if self._start_time:
+            total_duration = time.time() - self._start_time
+        else:
+            total_duration = 0
         total_transactions = len(self.transactions)
         successful_transactions = sum(1 for t in self.transactions if t.success)
         failed_transactions = total_transactions - successful_transactions

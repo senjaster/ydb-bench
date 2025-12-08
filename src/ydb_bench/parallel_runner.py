@@ -3,23 +3,25 @@
 import sys
 from multiprocessing import Pool
 from typing import Optional
+import time
 
 from .metrics import MetricsCollector
 from .runner import Runner
 from .workload import WeightedScriptSelector
-
+from .constants import Duration_Unit
 
 def _run_worker(
     runner: Runner,
+    workload_start_time: time,
+    duration: int,
+    duration_unit: Duration_Unit,
     process_id: int,
     jobs: int,
-    transactions: int,
     single_session: bool,
     script_selector: Optional[WeightedScriptSelector],
-    preheat: int,
 ) -> MetricsCollector:
     """Worker function that runs a runner instance."""
-    return runner.run(process_id, jobs, transactions, single_session, script_selector, preheat)
+    return runner.run(workload_start_time, duration, duration_unit, process_id, jobs, single_session, script_selector)
 
 
 class ParallelRunner:
@@ -36,12 +38,13 @@ class ParallelRunner:
 
     def run_parallel(
         self,
+        workload_start_time: time,
+        duration: int,
+        duration_unit: Duration_Unit,
         processes: int,
         jobs: int,
-        transactions: int,
         single_session: bool,
         script_selector: Optional[WeightedScriptSelector] = None,
-        preheat: int = 0,
     ) -> MetricsCollector:
         """
         Run workload with multiple processes in parallel.
@@ -58,12 +61,13 @@ class ParallelRunner:
         Returns:
             Merged MetricsCollector with results from all processes
         """
+
         # Split runner into multiple non-overlapping copies
         runners = self.runner.split(processes)
 
         # Prepare arguments for each worker process
         worker_args = [
-            (runner, i, jobs, transactions, single_session, script_selector, preheat)
+            (runner, workload_start_time, duration, duration_unit, i, jobs, single_session, script_selector)
             for i, runner in enumerate(runners)
         ]
 

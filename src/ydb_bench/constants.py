@@ -1,3 +1,5 @@
+from enum import Enum
+
 """
 Constants for YDB pgbench implementation.
 
@@ -20,3 +22,8 @@ UPDATE `{table_folder}/branches` SET bbalance = bbalance + $delta WHERE bid = $b
 INSERT INTO `{table_folder}/history` (tid, bid, aid, delta, mtime)
 VALUES ($tid, $bid, $aid, $delta, CurrentUtcTimestamp());
 """
+
+# Units of measurement of duration
+class Duration_Unit(Enum):
+    second = 1
+    txn = 2

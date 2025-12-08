@@ -51,13 +51,11 @@ class Initializer(BaseExecutor):
             try:
                 ddl_query = ddl_template.format(table_folder=self._table_folder)
             except KeyError as e:
-                raise KeyError(f"Неизвестный шаблон в SQL: {e}. Проверьте, что в файле есть {table_folder}")
+                raise KeyError(f"Неизвестный шаблон в SQL: {e}. " + "Проверьте, что в файле есть {table_folder}")
 
-            await pool.execute_with_retries(ddl_query)
         else:
             """Create the pgbench tables in the database."""
-            await pool.execute_with_retries(
-                f"""
+            ddl_query = f"""
                 DROP TABLE IF EXISTS `{self._table_folder}/accounts`;
                 CREATE TABLE `{self._table_folder}/accounts`
                 (
@@ -115,9 +113,9 @@ class Initializer(BaseExecutor):
                     AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
                 );
                 """
-            )
 
- 
+        await pool.execute_with_retries(ddl_query)
+
     async def _execute_operation(self, session: ydb.aio.QuerySession, iteration: int) -> None:
         """
         Fill data for a single branch.

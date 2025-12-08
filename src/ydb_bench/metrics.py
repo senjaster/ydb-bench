@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TransactionMetrics:
     """Metrics for a single transaction."""
+
     filepath: str
     start_time: float
     end_time: float
@@ -120,7 +121,7 @@ class MetricsCollector:
 
         return {
             "avg": avg,
-            "stddev" : stddev,
+            "stddev": stddev,
             "min": min_val,
             "max": max_val,
             "p50": p50,
@@ -150,10 +151,12 @@ class MetricsCollector:
         # Значение, которое мы ищем в поле filepath
         target_filepath = workload
         # Получаем список объектов, у которых поле filepath равно target_filepath или j,ob
-        if target_filepath == 'SUMMARY':
+        if target_filepath == "SUMMARY":
             filtered_transactions = self.transactions
         else:
-            filtered_transactions = [transaction for transaction in self.transactions if transaction.filepath == target_filepath]
+            filtered_transactions = [
+                transaction for transaction in self.transactions if transaction.filepath == target_filepath
+            ]
 
         start_times = [t.start_time for t in filtered_transactions if t.success and t.server_duration_us > 0]
         end_times = [t.end_time for t in filtered_transactions if t.success and t.server_cpu_time_us > 0]
@@ -171,8 +174,12 @@ class MetricsCollector:
         latency_stats = self._calculate_percentiles(latencies_ms)
 
         # Calculate server-side metrics (only for successful transactions with stats)
-        server_durations = [t.server_duration_ms for t in filtered_transactions if t.success and t.server_duration_us > 0]
-        server_cpu_times = [t.server_cpu_time_ms for t in filtered_transactions if t.success and t.server_cpu_time_us > 0]
+        server_durations = [
+            t.server_duration_ms for t in filtered_transactions if t.success and t.server_duration_us > 0
+        ]
+        server_cpu_times = [
+            t.server_cpu_time_ms for t in filtered_transactions if t.success and t.server_cpu_time_us > 0
+        ]
 
         server_duration_stats = self._calculate_percentiles(server_durations)
         server_cpu_time_stats = self._calculate_percentiles(server_cpu_times)
@@ -276,11 +283,10 @@ class MetricsCollector:
     def print_summary(self) -> None:
 
         unique_filepaths = sorted({transaction.filepath for transaction in self.transactions})
-        self.print_group('SUMMARY')
+        self.print_group("SUMMARY")
         count_unique_filepaths = len(unique_filepaths)
         if count_unique_filepaths > 1:
             for filepath in unique_filepaths:
                 print()
                 print()
                 self.print_group(filepath)
-

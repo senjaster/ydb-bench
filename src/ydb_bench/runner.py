@@ -12,7 +12,7 @@ import ydb
 from .base_executor import BaseExecutor
 from .metrics import MetricsCollector
 from .workload import WeightedScriptSelector
-from .constants import Duration_Unit
+from .constants import DurationUnit
 
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ class Runner:
         Handles driver initialization, connection waiting, and cleanup.
         Creates config and credentials dynamically to avoid pickling issues.
         """
-        config=self._get_driver_config()
+        config = self._get_driver_config()
 
         async with ydb.aio.Driver(driver_config=config) as driver:
             await driver.wait()
@@ -208,9 +208,9 @@ class Runner:
 
     def run(
         self,
-        workload_start_time: time,
+        workload_start_time: float,
         duration: int,
-        duration_unit: Duration_Unit,
+        duration_unit: DurationUnit,
         process_id: int,
         job_count: int = 7,
         use_single_session: bool = False,
@@ -314,8 +314,8 @@ class Runner:
             f"Scale validation passed: bid range [{self.bid_from}, {self.bid_to}] within {branch_count} branches"
         )
 
-    def test_connection(self)-> None:
-        config=self._get_driver_config()
+    def test_connection(self) -> None:
+        config = self._get_driver_config()
         driver = None
         try:
             driver = ydb.Driver(driver_config=config)
@@ -326,6 +326,3 @@ class Runner:
             if driver:
                 driver.stop()
             sys.exit(1)
-            
-
-

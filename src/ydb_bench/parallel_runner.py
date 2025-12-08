@@ -8,13 +8,14 @@ import time
 from .metrics import MetricsCollector
 from .runner import Runner
 from .workload import WeightedScriptSelector
-from .constants import Duration_Unit
+from .constants import DurationUnit
+
 
 def _run_worker(
     runner: Runner,
-    workload_start_time: time,
+    workload_start_time: float,
     duration: int,
-    duration_unit: Duration_Unit,
+    duration_unit: DurationUnit,
     process_id: int,
     jobs: int,
     single_session: bool,
@@ -38,9 +39,9 @@ class ParallelRunner:
 
     def run_parallel(
         self,
-        workload_start_time: time,
+        workload_start_time: float,
         duration: int,
-        duration_unit: Duration_Unit,
+        duration_unit: DurationUnit,
         processes: int,
         jobs: int,
         single_session: bool,

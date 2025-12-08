@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 import time
 
 import click
@@ -12,34 +12,35 @@ from click_option_group import optgroup, MutuallyExclusiveOptionGroup
 from .parallel_runner import ParallelRunner
 from .runner import Runner
 from .workload import WeightedScriptSelector, WorkloadScript
-from .constants import Duration_Unit
+from .constants import DurationUnit
 
-def setup_logging(log_level_str):
+
+def setup_logging(log_level_str: str) -> None:
     """Конвертирует строку уровня логирования в числовой уровень и настраивает логирование."""
     # Словарь допустимых уровней (можно расширить)
     level_map = {
-        'DEBUG': logging.DEBUG,
-        'INFO': logging.INFO,
-        'WARNING': logging.WARNING,
-        'ERROR': logging.ERROR,
-        'CRITICAL': logging.CRITICAL
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+        "CRITICAL": logging.CRITICAL,
     }
-    
+
     if log_level_str not in level_map:
-        raise ValueError(f"Недопустимый уровень логирования: {log_level_str}. "
-                        f"Допустимые значения: {list(level_map.keys())}")
-    
+        raise ValueError(
+            f"Недопустимый уровень логирования: {log_level_str}. " f"Допустимые значения: {list(level_map.keys())}"
+        )
+
     log_level = level_map[log_level_str]
-    
+
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - PID:%(process)d - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stderr
+        stream=sys.stderr,
     )
 
 
-
-def parse_weighted_file_spec(_ctx: Any, _param: Any, values: str) -> Tuple[str, float]:
+def parse_weighted_file_spec(_ctx: Any, _param: Any, values: str) -> List[Tuple[str, float]]:
     """
     Parse a file specification in format 'filename.sql@weight' or 'filename.sql'.
 
@@ -74,7 +75,7 @@ def parse_weighted_file_spec(_ctx: Any, _param: Any, values: str) -> Tuple[str, 
     return result
 
 
-def parse_weighted_builtin_spec(_ctx: Any, _param: Any, values: str) -> Tuple[str, float]:
+def parse_weighted_builtin_spec(_ctx: Any, _param: Any, values: str) -> List[Tuple[str, float]]:
     """
     Parse a builtin specification in format 'NAME@weight' or 'NAME'.
 
@@ -327,19 +328,18 @@ def init(ctx: click.Context, file: str) -> None:
     help="Preheat duration time in seconds (default: 30)",
 )
 @optgroup.group(
-    'Параметры нагрузки',
+    "Параметры нагрузки",
     cls=MutuallyExclusiveOptionGroup,
-    help='Укажите ТОЛЬКО один из параметров: количество транзакций ИЛИ продолжительность нагрузки.'
+    help="Укажите ТОЛЬКО один из параметров: количество транзакций ИЛИ продолжительность нагрузки.",
 )
 @optgroup.option(
     "--transactions",
     "-t",
     type=int,
-#    default=0,
-    help="Workload duration time in seconds (default: 120)",
+    help="Number of transactions each job runs (default: 10)",
 )
 @optgroup.option(
-    "--workload_duration",
+    "--workload-duration",
     "-T",
     type=int,
     default=120,
@@ -391,8 +391,6 @@ def run(
 
     mode = "single session" if single_session else "pooled"
 
-
-
     if preheat_duration < 0:
         raise ValueError("`preheat_duration` value can't be negative")
 
@@ -400,14 +398,14 @@ def run(
         raise ValueError("`workload_duration` value can't be negative")
 
     workload_start_time = time.time() + preheat_duration
-    
+
     if transactions is not None:
         duration = transactions
-        duration_unit = Duration_Unit.txn
+        duration_unit = DurationUnit.TXN
         duration_desc = "trnsactions per job"
     elif workload_duration is not None:
         duration = workload_duration
-        duration_unit = Duration_Unit.second
+        duration_unit = DurationUnit.SECOND
         duration_desc = "seconds"
     else:
         # Эта ветка теоретически не достижима благодаря MutuallyExclusiveOptionGroup,
@@ -424,7 +422,9 @@ def run(
     else:
         # Multi-process execution
         parallel_runner = ParallelRunner(runner)
-        metrics = parallel_runner.run_parallel(workload_start_time, duration, duration_unit, processes, jobs, single_session, script_selector)
+        metrics = parallel_runner.run_parallel(
+            workload_start_time, duration, duration_unit, processes, jobs, single_session, script_selector
+        )
 
     # Print metrics summary
     metrics.print_summary()

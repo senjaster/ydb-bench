@@ -8,7 +8,7 @@ import ydb
 
 from .base_executor import BaseExecutor
 from .constants import ACCOUNTS_PER_BRANCH, DEFAULT_SCRIPT, TELLERS_PER_BRANCH
-from .constants import Duration_Unit
+from .constants import DurationUnit
 from .metrics import MetricsCollector
 from .workload import WeightedScriptSelector, WorkloadScript
 
@@ -24,9 +24,9 @@ class Job(BaseExecutor):
 
     def __init__(
         self,
-        workload_start_time,
+        workload_start_time: float,
         duration: int,
-        duration_unit: Duration_Unit,
+        duration_unit: DurationUnit,
         bid_from: int,
         bid_to: int,
         metrics_collector: Optional[MetricsCollector] = None,
@@ -111,8 +111,6 @@ class Job(BaseExecutor):
             session: YDB query session
             iteration: Current iteration number (0-based)
         """
-        # Determine if this is a preheat transaction
-        # is_preheat = iteration < self._preheat
 
         success = False
         error_message = ""
@@ -141,8 +139,8 @@ class Job(BaseExecutor):
                         # All results should be obtained to get last_query_stats
                         pass
                     end_time = time.time()
-                    total_duration_us = tx.last_query_stats.total_duration_us
-                    total_cpu_time_us = tx.last_query_stats.total_cpu_time_us
+                    total_duration_us = tx.last_query_stats.total_duration_us 
+                    total_cpu_time_us = tx.last_query_stats.total_cpu_time_us 
             success = True
         except Exception as e:
             error_message = str(e)
@@ -151,7 +149,7 @@ class Job(BaseExecutor):
             # Only record metrics if not in preheat phase
             if end_time is None:
                 end_time = time.time()
-            if iteration >= 0:
+            if iteration >= 0 and self._metrics:
                 self._metrics.record_transaction(
                     script.filepath,
                     start_time,
@@ -180,13 +178,13 @@ class Job(BaseExecutor):
         logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] preheat completed")
 
         logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] workload started")
-    
-        if self._duration_unit == Duration_Unit.second:
+
+        if self._duration_unit == DurationUnit.SECOND:
             i = 0
             while time.time() < self._workload_start_time + self._duration:
                 try:
                     await pool.retry_operation_async(lambda session: self._execute_operation(session, i))
-                    i = i+1
+                    i = i + 1
                 except Exception as e:
                     logging.error("Retry limit exceeded")
                     logging.error(e)
@@ -218,13 +216,13 @@ class Job(BaseExecutor):
 
         logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] workload started")
         session = await pool.acquire()
-        
-        if self._duration_unit == Duration_Unit.second:
+
+        if self._duration_unit == DurationUnit.SECOND:
             i = 0
             try:
-                while time.time() < self._workload_start_time + self._duration:    
+                while time.time() < self._workload_start_time + self._duration:
                     await self._execute_operation(session, i)
-                    i = i+1
+                    i = i + 1
             finally:
                 await pool.release(session)
         else:

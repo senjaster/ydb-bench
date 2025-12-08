@@ -23,7 +23,8 @@ INSERT INTO `{table_folder}/history` (tid, bid, aid, delta, mtime)
 VALUES ($tid, $bid, $aid, $delta, CurrentUtcTimestamp());
 """
 
+
 # Units of measurement of duration
-class Duration_Unit(Enum):
-    second = 1
-    txn = 2
+class DurationUnit(Enum):
+    SECOND = 1
+    TXN = 2

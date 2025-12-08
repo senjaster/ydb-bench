@@ -72,7 +72,7 @@ def parse_weighted_builtin_spec(_ctx: Any, _param: Any, values: str) -> Tuple[st
     """
     result = []
     valid_builtins = ["tpcb-like"]
-    
+
     for value in values:
         if "@" in value:
             builtin_name, weight_str = value.rsplit("@", 1)
@@ -126,9 +126,7 @@ def create_workload_script(filepath: str, weight: float, table_folder: str) -> W
 
 
 def create_script_selector(
-    file_specs: Tuple[Tuple[str, float], ...],
-    builtin_specs: Tuple[Tuple[str, float], ...],
-    table_folder: str
+    file_specs: Tuple[Tuple[str, float], ...], builtin_specs: Tuple[Tuple[str, float], ...], table_folder: str
 ) -> Optional[WeightedScriptSelector]:
     """
     Create a WeightedScriptSelector from file and builtin specifications.
@@ -142,9 +140,9 @@ def create_script_selector(
         WeightedScriptSelector instance if files or builtins provided, None otherwise
     """
     from .constants import DEFAULT_SCRIPT
-    
+
     scripts = []
-    
+
     # Add builtin scripts
     if builtin_specs:
         for builtin_name, weight in builtin_specs:
@@ -157,7 +155,7 @@ def create_script_selector(
                 )
                 scripts.append(script)
                 click.echo(f"Loaded builtin: {builtin_name} (weight: {weight})")
-    
+
     # Add file scripts
     if file_specs:
         for filepath, weight in file_specs:

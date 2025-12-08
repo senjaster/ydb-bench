@@ -5,12 +5,15 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List, Optional, Sequence, Tuple
+import time
 
 import ydb
 
 from .base_executor import BaseExecutor
 from .metrics import MetricsCollector
 from .workload import WeightedScriptSelector
+from .constants import Duration_Unit
+
 
 logger = logging.getLogger(__name__)
 
@@ -101,25 +104,15 @@ class Runner:
         self.bid_from = bid_from
         self.bid_to = bid_to
 
-    @asynccontextmanager
-    async def _get_pool(self) -> AsyncIterator[ydb.aio.QuerySessionPool]:
-        """
-        Async context manager that creates and yields a YDB QuerySessionPool.
-        Handles driver initialization, connection waiting, and cleanup.
-        Creates config and credentials dynamically to avoid pickling issues.
-        """
-        # Load root certificates from file if provided
+    def _get_driver_config(self) -> ydb.DriverConfig:
         root_certificates = None
         if self._root_certificates_file:
             root_certificates = ydb.load_ydb_root_certificate(self._root_certificates_file)
 
-        # Create credentials from username and password if provided
-        credentials = None
         if self._user:
             credentials = ydb.StaticCredentials.from_user_password(self._user, self._password)
         else:
             credentials = ydb.credentials_from_env_variables()
-            print(credentials)
 
         # Create driver configuration
         config = ydb.DriverConfig(
@@ -129,6 +122,17 @@ class Runner:
             credentials=credentials,
             use_all_nodes=True,
         )
+
+        return config
+
+    @asynccontextmanager
+    async def _get_pool(self) -> AsyncIterator[ydb.aio.QuerySessionPool]:
+        """
+        Async context manager that creates and yields a YDB QuerySessionPool.
+        Handles driver initialization, connection waiting, and cleanup.
+        Creates config and credentials dynamically to avoid pickling issues.
+        """
+        config=self._get_driver_config()
 
         async with ydb.aio.Driver(driver_config=config) as driver:
             await driver.wait()
@@ -176,7 +180,7 @@ class Runner:
         """
         await asyncio.gather(*[executor.execute(pool) for executor in executors])
 
-    def init_tables(self, job_count: int = 10) -> None:
+    def init_tables(self, ddl_file: str, job_count: int = 10) -> None:
         """
         Initialize database tables with the specified bid range.
 
@@ -195,7 +199,7 @@ class Runner:
             async with self._get_pool() as pool:
                 # Create tables first (DDL operations)
                 initer = Initializer(self.bid_from, self.bid_to, table_folder=self.table_folder)
-                await initer.create_tables(pool)
+                await initer.create_tables(pool, ddl_file)
 
                 # Fill tables in parallel
                 await self._run_executors_parallel(pool, initializers)
@@ -204,12 +208,13 @@ class Runner:
 
     def run(
         self,
+        workload_start_time: time,
+        duration: int,
+        duration_unit: Duration_Unit,
         process_id: int,
         job_count: int = 7,
-        tran_count: int = 100,
         use_single_session: bool = False,
         script_selector: Optional[WeightedScriptSelector] = None,
-        preheat: int = 0,
     ) -> MetricsCollector:
         """
         Run workload with specified number of jobs and transactions.
@@ -229,27 +234,27 @@ class Runner:
         from .job import Job
 
         pid = os.getpid()
-        print(f"Process {process_id} started (PID: {pid})")
+        logger.info(f"Process {process_id} started (PID: {pid})")
 
         metrics = MetricsCollector()
 
         try:
             # Create job instances for parallel execution
             # Total transaction count includes preheat transactions
-            total_tran_count = tran_count + preheat
             jobs = []
             ranges = split_range(self.bid_from, self.bid_to, job_count)
             for job_bid_from, job_bid_to in ranges:
                 jobs.append(
                     Job(
+                        workload_start_time,
+                        duration,
+                        duration_unit,
                         job_bid_from,
                         job_bid_to,
-                        total_tran_count,
                         metrics,
                         self.table_folder,
                         use_single_session,
                         script_selector,
-                        preheat,
                     )
                 )
 
@@ -293,6 +298,12 @@ class Runner:
             branch_count = row["branch_count"]
             break
 
+        if self.bid_from > branch_count:
+            raise ValueError(
+                f"Scale parameter exceeds the number of initialized branches ({branch_count}). "
+                f"Please run test with scale = {branch_count}."
+            )
+
         if self.bid_to > branch_count:
             raise ValueError(
                 f"Bid range [{self.bid_from}, {self.bid_to}] exceeds the number of initialized branches ({branch_count}). "
@@ -302,3 +313,19 @@ class Runner:
         logger.info(
             f"Scale validation passed: bid range [{self.bid_from}, {self.bid_to}] within {branch_count} branches"
         )
+
+    def test_connection(self)-> None:
+        config=self._get_driver_config()
+        driver = None
+        try:
+            driver = ydb.Driver(driver_config=config)
+            driver.wait(timeout=10, fail_fast=True)
+            driver.stop()
+        except Exception as e:
+            logging.error(f"Ошибка подключения к YDB. Проверьте параметры подключения.")
+            if driver:
+                driver.stop()
+            sys.exit(1)
+            
+
+

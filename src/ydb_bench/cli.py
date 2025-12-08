@@ -2,20 +2,41 @@
 import logging
 import os
 import re
+import sys
 from typing import Any, Optional, Tuple
+import time
 
 import click
+from click_option_group import optgroup, MutuallyExclusiveOptionGroup
 
 from .parallel_runner import ParallelRunner
 from .runner import Runner
 from .workload import WeightedScriptSelector, WorkloadScript
+from .constants import Duration_Unit
 
-# Configure logging to stderr
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - PID:%(process)d - %(name)s - %(levelname)s - %(message)s",
-    stream=__import__("sys").stderr,
-)
+def setup_logging(log_level_str):
+    """Конвертирует строку уровня логирования в числовой уровень и настраивает логирование."""
+    # Словарь допустимых уровней (можно расширить)
+    level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL
+    }
+    
+    if log_level_str not in level_map:
+        raise ValueError(f"Недопустимый уровень логирования: {log_level_str}. "
+                        f"Допустимые значения: {list(level_map.keys())}")
+    
+    log_level = level_map[log_level_str]
+    
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - PID:%(process)d - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stderr
+    )
+
 
 
 def parse_weighted_file_spec(_ctx: Any, _param: Any, values: str) -> Tuple[str, float]:
@@ -220,6 +241,12 @@ def validate_table_folder(_ctx: Any, _param: Any, table_folder: str) -> str:
     default=100,
     help="Number of branches to create (default: 100)",
 )
+@click.option(
+    "--log-level",
+    type=str,
+    default="INFO",
+    help="Logging level. Opdions: DEBUG, INFO, WARNING,ERROR, CRITICAL. Default: INFO",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -230,13 +257,16 @@ def cli(
     password: Optional[str],
     prefix_path: str,
     scale: int,
+    log_level: str,
 ) -> None:
     """YDB pgbench-like workload tool."""
 
+    # Настройка уровня логирования
+    setup_logging(log_level)
+
     # Create Runner instance and store in context
     # Convert scale to bid_from and bid_to
-    ctx.ensure_object(dict)
-    ctx.obj["runner"] = Runner(
+    runner = Runner(
         endpoint=endpoint,
         database=database,
         bid_from=1,
@@ -246,20 +276,32 @@ def cli(
         password=password,
         table_folder=prefix_path,
     )
+    # Test connection
+    runner.test_connection()
+
+    ctx.ensure_object(dict)
+    ctx.obj["runner"] = runner
     # Store scale for display purposes
     ctx.obj["scale"] = scale
 
 
 @cli.command()
+@click.option(
+    "--file",
+    "-f",
+    multiple=False,
+    type=str,
+    help="Path to SQL file with tables DDL definition",
+)
 @click.pass_context
-def init(ctx: click.Context) -> None:
+def init(ctx: click.Context, file: str) -> None:
     """Initialize database tables with test data."""
     runner = ctx.obj["runner"]
     scale = ctx.obj["scale"]
 
-    click.echo(f"Initializing database with prefix_path={runner.table_folder}, scale={scale}")
+    click.echo(f"Initializing database with prefix_path={runner.table_folder}, scale={scale}, ddl_file={file}")
 
-    runner.init_tables()
+    runner.init_tables(file)
 
     click.echo("Initialization completed")
 
@@ -267,6 +309,7 @@ def init(ctx: click.Context) -> None:
 @cli.command()
 @click.option(
     "--processes",
+    "-p",
     type=int,
     default=1,
     help="Number of parallel client processes (default: 1)",
@@ -279,17 +322,30 @@ def init(ctx: click.Context) -> None:
     help="Number of async jobs per process (default: 1)",
 )
 @click.option(
+    "--preheat-duration",
+    "-P",
+    type=int,
+    default=30,
+    help="Preheat duration time in seconds (default: 30)",
+)
+@optgroup.group(
+    'Параметры нагрузки',
+    cls=MutuallyExclusiveOptionGroup,
+    help='Укажите ТОЛЬКО один из параметров: количество транзакций ИЛИ продолжительность нагрузки.'
+)
+@optgroup.option(
     "--transactions",
     "-t",
     type=int,
-    default=100,
-    help="Number of transactions each job runs (default: 100)",
+#    default=0,
+    help="Workload duration time in seconds (default: 120)",
 )
-@click.option(
-    "--preheat",
+@optgroup.option(
+    "--workload_duration",
+    "-T",
     type=int,
-    default=0,
-    help="Number of preheat transactions to run before counting metrics (default: 0)",
+    default=120,
+    help="Workload duration time in seconds (default: 120)",
 )
 @click.option(
     "--single-session",
@@ -317,8 +373,9 @@ def run(
     ctx: click.Context,
     processes: int,
     jobs: int,
+    preheat_duration: int,
     transactions: int,
-    preheat: int,
+    workload_duration: int,
     single_session: bool,
     file: Tuple[Tuple[str, float], ...],
     builtin: Tuple[Tuple[str, float], ...],
@@ -335,18 +392,41 @@ def run(
     script_selector = create_script_selector(file, builtin, runner.table_folder)
 
     mode = "single session" if single_session else "pooled"
-    preheat_info = f", preheat={preheat}" if preheat > 0 else ""
+
+
+
+    if preheat_duration < 0:
+        raise ValueError("`preheat_duration` value can't be negative")
+
+    if workload_duration < 0:
+        raise ValueError("`workload_duration` value can't be negative")
+
+    workload_start_time = time.time() + preheat_duration
+    
+    if transactions is not None:
+        duration = transactions
+        duration_unit = Duration_Unit.txn
+        duration_desc = "trnsactions per job"
+    elif workload_duration is not None:
+        duration = workload_duration
+        duration_unit = Duration_Unit.second
+        duration_desc = "seconds"
+    else:
+        # Эта ветка теоретически не достижима благодаря MutuallyExclusiveOptionGroup,
+        print("Error: None of the test duration parameters were specified!")
+        click.get_current_context().exit(1)
+
     click.echo(
-        f"Running workload with prefix_path={runner.table_folder}, scale={scale}, jobs={jobs}, transactions={transactions}{preheat_info}, client={processes}, mode={mode}"
+        f"Running workload with prefix_path={runner.table_folder}, scale={scale}, jobs={jobs}, client={processes}, mode={mode}, duration={duration} ({duration_desc})"
     )
 
     if processes == 1:
         # Single process execution
-        metrics = runner.run(0, jobs, transactions, single_session, script_selector, preheat)
+        metrics = runner.run(workload_start_time, duration, duration_unit, 0, jobs, single_session, script_selector)
     else:
         # Multi-process execution
         parallel_runner = ParallelRunner(runner)
-        metrics = parallel_runner.run_parallel(processes, jobs, transactions, single_session, script_selector, preheat)
+        metrics = parallel_runner.run_parallel(workload_start_time, duration, duration_unit, processes, jobs, single_session, script_selector)
 
     # Print metrics summary
     metrics.print_summary()

@@ -1,6 +1,7 @@
 import logging
 import sys
 import time
+import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TransactionMetrics:
     """Metrics for a single transaction."""
-
+    filepath: str
     start_time: float
     end_time: float
     success: bool
@@ -44,6 +45,7 @@ class MetricsCollector:
 
     def record_transaction(
         self,
+        filepath: str,
         start_time: float,
         end_time: float,
         success: bool,
@@ -66,6 +68,7 @@ class MetricsCollector:
             self._start_time = time.time()
         self.transactions.append(
             TransactionMetrics(
+                filepath=filepath,
                 start_time=start_time,
                 end_time=end_time,
                 success=success,
@@ -93,6 +96,7 @@ class MetricsCollector:
         if not values:
             return {
                 "avg": 0.0,
+                "stddev": 0.0,
                 "min": 0.0,
                 "max": 0.0,
                 "p50": 0.0,
@@ -102,6 +106,7 @@ class MetricsCollector:
 
         sorted_values = sorted(values)
         avg = sum(sorted_values) / len(sorted_values)
+        stddev = statistics.stdev(sorted_values)
         min_val = sorted_values[0]
         max_val = sorted_values[-1]
 
@@ -115,6 +120,7 @@ class MetricsCollector:
 
         return {
             "avg": avg,
+            "stddev" : stddev,
             "min": min_val,
             "max": max_val,
             "p50": p50,
@@ -122,7 +128,7 @@ class MetricsCollector:
             "p99": p99,
         }
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self, workload: str) -> Dict[str, Any]:
         """
         Calculate and return summary statistics.
 
@@ -140,21 +146,33 @@ class MetricsCollector:
                 "server_duration": {},
                 "server_cpu_time": {},
             }
-        if self._start_time:
-            total_duration = time.time() - self._start_time
+
+        # Значение, которое мы ищем в поле filepath
+        target_filepath = workload
+        # Получаем список объектов, у которых поле filepath равно target_filepath или j,ob
+        if target_filepath == 'SUMMARY':
+            filtered_transactions = self.transactions
         else:
-            total_duration = 0
-        total_transactions = len(self.transactions)
-        successful_transactions = sum(1 for t in self.transactions if t.success)
+            filtered_transactions = [transaction for transaction in self.transactions if transaction.filepath == target_filepath]
+
+        start_times = [t.start_time for t in filtered_transactions if t.success and t.server_duration_us > 0]
+        end_times = [t.end_time for t in filtered_transactions if t.success and t.server_cpu_time_us > 0]
+        min_time = start_times[0]
+        max_time = end_times[-1]
+
+        total_duration = max_time - min_time
+
+        total_transactions = len(filtered_transactions)
+        successful_transactions = sum(1 for t in filtered_transactions if t.success)
         failed_transactions = total_transactions - successful_transactions
 
         # Calculate client-side latency statistics (in milliseconds)
-        latencies_ms = [t.latency * 1000 for t in self.transactions]
+        latencies_ms = [t.latency * 1000 for t in filtered_transactions]
         latency_stats = self._calculate_percentiles(latencies_ms)
 
         # Calculate server-side metrics (only for successful transactions with stats)
-        server_durations = [t.server_duration_ms for t in self.transactions if t.success and t.server_duration_us > 0]
-        server_cpu_times = [t.server_cpu_time_ms for t in self.transactions if t.success and t.server_cpu_time_us > 0]
+        server_durations = [t.server_duration_ms for t in filtered_transactions if t.success and t.server_duration_us > 0]
+        server_cpu_times = [t.server_cpu_time_ms for t in filtered_transactions if t.success and t.server_cpu_time_us > 0]
 
         server_duration_stats = self._calculate_percentiles(server_durations)
         server_cpu_time_stats = self._calculate_percentiles(server_cpu_times)
@@ -173,13 +191,14 @@ class MetricsCollector:
             "server_cpu_time": server_cpu_time_stats,
         }
 
-    def print_summary(self) -> None:
+    def print_group(self, workload: str) -> None:
         """Print formatted metrics summary to stdout (not as log)."""
-        summary = self.get_summary()
+
+        summary = self.get_summary(workload)
 
         # Print directly to stdout, not through logger
         print("=" * 90, file=sys.stdout)
-        print("PERFORMANCE METRICS SUMMARY", file=sys.stdout)
+        print(f"PERFORMANCE METRICS: {workload}", file=sys.stdout)
         print("=" * 90, file=sys.stdout)
         print(
             f"Total Duration:           {summary['total_duration']:.2f} seconds",
@@ -217,6 +236,11 @@ class MetricsCollector:
             file=sys.stdout,
         )
         print(
+            f"{'STDDev':<15} {lat['stddev']:>20.2f} {srv_dur['stddev']:>25.2f} {srv_cpu['stddev']:>20.2f}",
+            file=sys.stdout,
+        )
+        print()
+        print(
             f"{'Minimum':<15} {lat['min']:>20.2f} {srv_dur['min']:>25.2f} {srv_cpu['min']:>20.2f}",
             file=sys.stdout,
         )
@@ -224,6 +248,7 @@ class MetricsCollector:
             f"{'Maximum':<15} {lat['max']:>20.2f} {srv_dur['max']:>25.2f} {srv_cpu['max']:>20.2f}",
             file=sys.stdout,
         )
+        print()
         print(
             f"{'P50 (Median)':<15} {lat['p50']:>20.2f} {srv_dur['p50']:>25.2f} {srv_cpu['p50']:>20.2f}",
             file=sys.stdout,
@@ -247,3 +272,15 @@ class MetricsCollector:
             print("=" * 90, file=sys.stdout)
 
         sys.stdout.flush()
+
+    def print_summary(self) -> None:
+
+        unique_filepaths = sorted({transaction.filepath for transaction in self.transactions})
+        self.print_group('SUMMARY')
+        count_unique_filepaths = len(unique_filepaths)
+        if count_unique_filepaths > 1:
+            for filepath in unique_filepaths:
+                print()
+                print()
+                self.print_group(filepath)
+

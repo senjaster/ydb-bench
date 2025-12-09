@@ -76,3 +76,4 @@ run.sh
 init.sh
 *.log
 *.sql
+.DS_Store

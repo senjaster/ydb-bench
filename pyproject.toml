@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "ydb[yc]",
     "click>=8.0.0",
+    "click_option_group",
 ]
 
 [project.optional-dependencies]

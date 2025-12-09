@@ -1,6 +1,7 @@
 from typing import Optional
 
 import ydb
+import time
 
 from .base_executor import BaseExecutor
 from .constants import ACCOUNTS_PER_BRANCH, TELLERS_PER_BRANCH
@@ -35,69 +36,88 @@ class Initializer(BaseExecutor):
         count = bid_to - bid_from + 1
         super().__init__(bid_from, bid_to, count, metrics_collector, table_folder, use_single_session)
 
-    async def create_tables(self, pool: ydb.aio.QuerySessionPool) -> None:
-        """Create the pgbench tables in the database."""
-        await pool.execute_with_retries(
-            f"""
-            DROP TABLE IF EXISTS `{self._table_folder}/accounts`;
-            CREATE TABLE `{self._table_folder}/accounts`
-            (
-                aid Int32,
-                bid Int32,
-                abalance Int32,
-                filler Utf8,
-                PRIMARY KEY(aid)
-            ) WITH (
-                AUTO_PARTITIONING_BY_LOAD = ENABLED,
-                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
-                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
-            );
+    async def create_tables(self, pool: ydb.aio.QuerySessionPool, ddl_file: str) -> None:
 
-            DROP TABLE IF EXISTS `{self._table_folder}/branches`;
-            CREATE TABLE `{self._table_folder}/branches`
-            (
-                bid Int32,
-                bbalance Int32,
-                filler Utf8,
-                PRIMARY KEY(bid)
-            ) WITH (
-                AUTO_PARTITIONING_BY_LOAD = ENABLED,
-                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
-                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
-            );
+        # Читаем SQL из файла
+        if ddl_file:
+            try:
+                with open(ddl_file, "r", encoding="utf-8") as f:
+                    ddl_template = f.read()
+            except FileNotFoundError:
+                raise FileNotFoundError(f"SQL-файл не найден: {ddl_file}")
+            except Exception as e:
+                raise RuntimeError(f"Ошибка при чтении файла {ddl_file}: {e}")
 
-            DROP TABLE IF EXISTS `{self._table_folder}/tellers`;
-            CREATE TABLE `{self._table_folder}/tellers`
-            (
-                tid Int32,
-                bid Int32,
-                tbalance Int32,
-                filler Utf8,
-                PRIMARY KEY(tid)
-            ) WITH (
-                AUTO_PARTITIONING_BY_LOAD = ENABLED,
-                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
-                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
-            );
+            try:
+                ddl_query = ddl_template.format(table_folder=self._table_folder)
+            except KeyError as e:
+                raise KeyError(f"Неизвестный шаблон в SQL: {e}. Проверьте, что в файле есть {table_folder}")
 
-            DROP TABLE IF EXISTS `{self._table_folder}/history`;
-            CREATE TABLE `{self._table_folder}/history`
-            (
-                tid Int32,
-                bid Int32,
-                aid Int32,
-                delta Int32,
-                mtime timestamp,
-                filler Utf8,
-                PRIMARY KEY(aid, mtime)
-            ) WITH (
-                AUTO_PARTITIONING_BY_LOAD = ENABLED,
-                AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
-                AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
-            );
-            """
-        )
+            await pool.execute_with_retries(ddl_query)
+        else:
+            """Create the pgbench tables in the database."""
+            await pool.execute_with_retries(
+                f"""
+                DROP TABLE IF EXISTS `{self._table_folder}/accounts`;
+                CREATE TABLE `{self._table_folder}/accounts`
+                (
+                    aid Int32,
+                    bid Int32,
+                    abalance Int32,
+                    filler Utf8,
+                    PRIMARY KEY(aid)
+                ) WITH (
+                    AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                    AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                    AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
+                );
 
+                DROP TABLE IF EXISTS `{self._table_folder}/branches`;
+                CREATE TABLE `{self._table_folder}/branches`
+                (
+                    bid Int32,
+                    bbalance Int32,
+                    filler Utf8,
+                    PRIMARY KEY(bid)
+                ) WITH (
+                    AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                    AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                    AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
+                );
+
+                DROP TABLE IF EXISTS `{self._table_folder}/tellers`;
+                CREATE TABLE `{self._table_folder}/tellers`
+                (
+                    tid Int32,
+                    bid Int32,
+                    tbalance Int32,
+                    filler Utf8,
+                    PRIMARY KEY(tid)
+                ) WITH (
+                    AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                    AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                    AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
+                );
+
+                DROP TABLE IF EXISTS `{self._table_folder}/history`;
+                CREATE TABLE `{self._table_folder}/history`
+                (
+                    tid Int32,
+                    bid Int32,
+                    aid Int32,
+                    delta Int32,
+                    mtime timestamp,
+                    filler Utf8,
+                    PRIMARY KEY(aid, mtime)
+                ) WITH (
+                    AUTO_PARTITIONING_BY_LOAD = ENABLED,
+                    AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 100,
+                    AUTO_PARTITIONING_MAX_PARTITIONS_COUNT = 110
+                );
+                """
+            )
+
+ 
     async def _execute_operation(self, session: ydb.aio.QuerySession, iteration: int) -> None:
         """
         Fill data for a single branch.

@@ -8,6 +8,7 @@ import ydb
 
 from .base_executor import BaseExecutor
 from .constants import ACCOUNTS_PER_BRANCH, DEFAULT_SCRIPT, TELLERS_PER_BRANCH
+from .constants import Duration_Unit
 from .metrics import MetricsCollector
 from .workload import WeightedScriptSelector, WorkloadScript
 
@@ -23,14 +24,15 @@ class Job(BaseExecutor):
 
     def __init__(
         self,
+        workload_start_time,
+        duration: int,
+        duration_unit: Duration_Unit,
         bid_from: int,
         bid_to: int,
-        tran_count: int,
         metrics_collector: Optional[MetricsCollector] = None,
         table_folder: str = "pgbench",
         use_single_session: bool = False,
         script_selector: Optional[WeightedScriptSelector] = None,
-        preheat: int = 0,
     ):
         """
         Initialize a job that executes transactions.
@@ -48,13 +50,14 @@ class Job(BaseExecutor):
         super().__init__(
             bid_from,
             bid_to,
-            tran_count,
+            0,
             metrics_collector,
             table_folder,
             use_single_session,
         )
-
-        self._preheat = preheat
+        self._workload_start_time = workload_start_time
+        self._duration = duration
+        self._duration_unit = duration_unit
 
         # Create script selector if none provided
         if script_selector is None:
@@ -109,13 +112,14 @@ class Job(BaseExecutor):
             iteration: Current iteration number (0-based)
         """
         # Determine if this is a preheat transaction
-        is_preheat = iteration < self._preheat
+        # is_preheat = iteration < self._preheat
 
-        start_time = time.time()
         success = False
         error_message = ""
         total_duration_us = 0
         total_cpu_time_us = 0
+
+        end_time = None
 
         try:
             # Select script for this transaction
@@ -123,6 +127,8 @@ class Job(BaseExecutor):
 
             # Build parameters dictionary based on what this specific script uses
             parameters = self._build_parameters(script, iteration)
+
+            start_time = time.time()
 
             async with session.transaction() as tx:
                 async with await tx.execute(
@@ -134,18 +140,20 @@ class Job(BaseExecutor):
                     async for result in results:
                         # All results should be obtained to get last_query_stats
                         pass
+                    end_time = time.time()
                     total_duration_us = tx.last_query_stats.total_duration_us
                     total_cpu_time_us = tx.last_query_stats.total_cpu_time_us
             success = True
         except Exception as e:
             error_message = str(e)
-
             raise
         finally:
-            end_time = time.time()
             # Only record metrics if not in preheat phase
-            if self._metrics and not is_preheat:
+            if end_time is None:
+                end_time = time.time()
+            if iteration >= 0:
                 self._metrics.record_transaction(
+                    script.filepath,
                     start_time,
                     end_time,
                     success,
@@ -153,3 +161,76 @@ class Job(BaseExecutor):
                     total_duration_us,
                     total_cpu_time_us,
                 )
+
+    async def _execute_pooled(self, pool: ydb.aio.QuerySessionPool) -> None:
+        """
+        Execute operations using pool's retry mechanism.
+
+        Args:
+            pool: YDB query session pool
+        """
+
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] preheat started")
+        while time.time() < self._workload_start_time:
+            try:
+                await pool.retry_operation_async(lambda session: self._execute_operation(session, -1))
+            except Exception as e:
+                logging.error("Retry limit exceeded")
+                logging.error(e)
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] preheat completed")
+
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] workload started")
+    
+        if self._duration_unit == Duration_Unit.second:
+            i = 0
+            while time.time() < self._workload_start_time + self._duration:
+                try:
+                    await pool.retry_operation_async(lambda session: self._execute_operation(session, i))
+                    i = i+1
+                except Exception as e:
+                    logging.error("Retry limit exceeded")
+                    logging.error(e)
+        else:
+            for i in range(self._duration):
+                try:
+                    await pool.retry_operation_async(lambda session: self._execute_operation(session, i))
+                except Exception as e:
+                    logging.error("Retry limit exceeded")
+                    logging.error(e)
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] workload completed")
+
+    async def _execute_single_session(self, pool: ydb.aio.QuerySessionPool) -> None:
+        """
+        Execute operations using a single acquired session.
+
+        Args:
+            pool: YDB query session pool
+        """
+
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] preheat started")
+        while time.time() < self._workload_start_time:
+            try:
+                await pool.retry_operation_async(lambda session: self._execute_operation(session, 0))
+            except Exception as e:
+                logging.error("Retry limit exceeded")
+                logging.error(e)
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] preheat completed")
+
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] workload started")
+        session = await pool.acquire()
+        
+        if self._duration_unit == Duration_Unit.second:
+            i = 0
+            try:
+                while time.time() < self._workload_start_time + self._duration:    
+                    await self._execute_operation(session, i)
+                    i = i+1
+            finally:
+                await pool.release(session)
+        else:
+            try:
+                for i in range(self._duration):
+                    await self._execute_operation(session, i)
+            finally:
+                await pool.release(session)
+        logger.info(f"{self.__class__.__name__} [{self._bid_from}, {self._bid_to}] workload completed")

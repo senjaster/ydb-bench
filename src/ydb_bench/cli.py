@@ -16,7 +16,7 @@ from .constants import DurationUnit
 
 
 def setup_logging(log_level_str: str) -> None:
-    """Конвертирует строку уровня логирования в числовой уровень и настраивает логирование."""
+    """Converts logging level string to numeric level and configures logging."""
     # Словарь допустимых уровней (можно расширить)
     level_map = {
         "DEBUG": logging.DEBUG,
@@ -28,7 +28,7 @@ def setup_logging(log_level_str: str) -> None:
 
     if log_level_str not in level_map:
         raise ValueError(
-            f"Недопустимый уровень логирования: {log_level_str}. " f"Допустимые значения: {list(level_map.keys())}"
+            f"Invalid logging level: {log_level_str}. " f"Valid values: {list(level_map.keys())}"
         )
 
     log_level = level_map[log_level_str]
@@ -328,9 +328,9 @@ def init(ctx: click.Context, file: str) -> None:
     help="Preheat duration time in seconds (default: 30)",
 )
 @optgroup.group(
-    "Параметры нагрузки",
+    "Workload parameters",
     cls=MutuallyExclusiveOptionGroup,
-    help="Укажите ТОЛЬКО один из параметров: количество транзакций ИЛИ продолжительность нагрузки.",
+    help="Specify ONLY one parameter: number of transactions OR workload duration.",
 )
 @optgroup.option(
     "--transactions",

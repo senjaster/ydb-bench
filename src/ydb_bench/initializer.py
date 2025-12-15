@@ -44,14 +44,14 @@ class Initializer(BaseExecutor):
                 with open(ddl_file, "r", encoding="utf-8") as f:
                     ddl_template = f.read()
             except FileNotFoundError:
-                raise FileNotFoundError(f"SQL-файл не найден: {ddl_file}")
+                raise FileNotFoundError(f"SQL file not found: {ddl_file}")
             except Exception as e:
-                raise RuntimeError(f"Ошибка при чтении файла {ddl_file}: {e}")
+                raise RuntimeError(f"Error reading file {ddl_file}: {e}")
 
             try:
                 ddl_query = ddl_template.format(table_folder=self._table_folder)
             except KeyError as e:
-                raise KeyError(f"Неизвестный шаблон в SQL: {e}. " + "Проверьте, что в файле есть {table_folder}")
+                raise KeyError(f"Unknown template in SQL: {e}. " + "Check that the file contains {table_folder}")
 
         else:
             """Create the pgbench tables in the database."""

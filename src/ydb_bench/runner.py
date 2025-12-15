@@ -322,7 +322,7 @@ class Runner:
             driver.wait(timeout=10, fail_fast=True)
             driver.stop()
         except Exception as e:
-            logging.error(f"Ошибка подключения к YDB. Проверьте параметры подключения.")
+            logging.error(f"YDB connection error. Check connection parameters.")
             if driver:
                 driver.stop()
             sys.exit(1)
